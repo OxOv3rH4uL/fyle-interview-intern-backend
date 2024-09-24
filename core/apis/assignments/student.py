@@ -12,9 +12,10 @@ student_assignments_resources = Blueprint('student_assignments_resources', __nam
 @decorators.authenticate_principal
 def list_assignments(p):
     """Returns list of assignments"""
-    students_assignments = Assignment.get_assignments_by_student(p.student_id)
+    students_assignments = Assignment.get_assignments_by_student(p.student_id,p.user_id)
     students_assignments_dump = AssignmentSchema().dump(students_assignments, many=True)
     return APIResponse.respond(data=students_assignments_dump)
+
 
 
 @student_assignments_resources.route('/assignments', methods=['POST'], strict_slashes=False)
@@ -24,8 +25,7 @@ def upsert_assignment(p, incoming_payload):
     """Create or Edit an assignment"""
     assignment = AssignmentSchema().load(incoming_payload)
     assignment.student_id = p.student_id
-
-    upserted_assignment = Assignment.upsert(assignment)
+    upserted_assignment = Assignment.upsert(assignment,p.student_id)
     db.session.commit()
     upserted_assignment_dump = AssignmentSchema().dump(upserted_assignment)
     return APIResponse.respond(data=upserted_assignment_dump)

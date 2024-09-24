@@ -44,15 +44,18 @@ class Assignment(db.Model):
         return cls.filter(cls.id == _id).first()
 
     @classmethod
-    def upsert(cls, assignment_new: 'Assignment'):
+    def upsert(cls, assignment_new: 'Assignment',student_id):
         if assignment_new.id is not None:
             assignment = Assignment.get_by_id(assignment_new.id)
             assertions.assert_found(assignment, 'No assignment with this id was found')
-            assertions.assert_valid(assignment.state == AssignmentStateEnum.DRAFT,
-                                    'only assignment in draft state can be edited')
+            assertions.base_assert_condition(assignment_new.content == "" or assignment_new.content is None, 400,'assignment with empty content cannot be submitted')
+            assertions.base_assert_condition(assignment.state != AssignmentStateEnum.DRAFT,400,'only assignment in draft state can be edited')
+            assertions.base_assert_condition(assignment.student_id != student_id,400,'Cannot update other student assignments')
 
             assignment.content = assignment_new.content
+
         else:
+            assertions.base_assert_condition(assignment_new.content == "" or assignment_new.content is None , 400,'assignment with empty content cannot be submitted')
             assignment = assignment_new
             db.session.add(assignment_new)
 
@@ -62,32 +65,55 @@ class Assignment(db.Model):
     @classmethod
     def submit(cls, _id, teacher_id, auth_principal: AuthPrincipal):
         assignment = Assignment.get_by_id(_id)
+        teacher = Teacher.get_by_id(teacher_id)
         assertions.assert_found(assignment, 'No assignment with this id was found')
         assertions.assert_valid(assignment.student_id == auth_principal.student_id, 'This assignment belongs to some other student')
-        assertions.assert_valid(assignment.content is not None, 'assignment with empty content cannot be submitted')
-
+        assertions.base_assert_condition(assignment.content is None or assignment.content == "", 400,'assignment with empty content cannot be submitted')
+        assertions.base_assert_condition(assignment.state == AssignmentStateEnum.SUBMITTED,400,'only a draft assignment can be submitted')
+        assertions.assert_found(teacher,'Teacher not found!')
+        assignment.state = AssignmentStateEnum.SUBMITTED
         assignment.teacher_id = teacher_id
         db.session.flush()
-
         return assignment
 
 
     @classmethod
-    def mark_grade(cls, _id, grade, auth_principal: AuthPrincipal):
+    def mark_grade(cls, _id, grade,auth_principal: AuthPrincipal):
         assignment = Assignment.get_by_id(_id)
         assertions.assert_found(assignment, 'No assignment with this id was found')
-        assertions.assert_valid(grade is not None, 'assignment with empty grade cannot be graded')
+        assertions.base_assert_condition(grade is None or grade == "", 400,'assignment with empty grade cannot be graded')
+        assertions.base_assert_condition(assignment.state is AssignmentStateEnum.DRAFT,400,'assignment has not been submitted')
+        assertions.base_assert_condition(assignment.teacher_id != auth_principal.teacher_id ,400,'Cannot grade other teacher assignments')
+        assignment.grade = grade
+        assignment.state = AssignmentStateEnum.GRADED
+        db.session.flush()
 
+        return assignment
+    
+    @classmethod
+    def mark_grade_principal(cls,_id,grade,auth_principal:AuthPrincipal):
+        assignment = Assignment.get_by_id(_id)
+        assertions.assert_found(assignment, 'No assignment with this id was found')
+        assertions.base_assert_condition(grade is None or grade == "", 400,'assignment with empty grade cannot be graded')
+        assertions.base_assert_condition(grade not in ['A','B','C','D'],400,'Wrong Grade')
+        assertions.base_assert_condition(assignment.state is AssignmentStateEnum.DRAFT,400,'assignment has not been submitted')
         assignment.grade = grade
         assignment.state = AssignmentStateEnum.GRADED
         db.session.flush()
 
         return assignment
 
-    @classmethod
-    def get_assignments_by_student(cls, student_id):
-        return cls.filter(cls.student_id == student_id).all()
 
     @classmethod
-    def get_assignments_by_teacher(cls):
-        return cls.query.all()
+    def get_assignments_by_student(cls, student_id,user_id):
+        return cls.query.join(Student, cls.student_id == Student.id).filter(cls.student_id == student_id, Student.user_id == user_id).all()
+        # return cls.filter(cls.student_id == student_id).all()
+
+    @classmethod
+    def get_assignments_by_teacher(cls,teacher_id,user_id):
+        return cls.query.join(Teacher, cls.teacher_id == Teacher.id).filter(cls.teacher_id == teacher_id, Teacher.user_id == user_id).all()
+    
+    @classmethod
+    def get_all_assignments(cls):
+        return cls.filter(cls.state != AssignmentStateEnum.DRAFT).all()
+

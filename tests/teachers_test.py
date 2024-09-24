@@ -1,3 +1,5 @@
+from core.models.assignments import GradeEnum,AssignmentStateEnum
+
 def test_get_assignments_teacher_1(client, h_teacher_1):
     response = client.get(
         '/teacher/assignments',
@@ -9,6 +11,7 @@ def test_get_assignments_teacher_1(client, h_teacher_1):
     data = response.json['data']
     for assignment in data:
         assert assignment['teacher_id'] == 1
+        assert assignment['state'] in ['SUBMITTED','GRADED']
 
 
 def test_get_assignments_teacher_2(client, h_teacher_2):
@@ -42,6 +45,7 @@ def test_grade_assignment_cross(client, h_teacher_2):
     data = response.json
 
     assert data['error'] == 'FyleError'
+    assert data['message'] == 'Cannot grade other teacher assignments'
 
 
 def test_grade_assignment_bad_grade(client, h_teacher_1):
@@ -59,8 +63,28 @@ def test_grade_assignment_bad_grade(client, h_teacher_1):
 
     assert response.status_code == 400
     data = response.json
-
+    # print(data)
     assert data['error'] == 'ValidationError'
+    assert data['message']['grade'][0] == 'Invalid enum member AB'
+
+def test_grade_assignment_null_grade(client,h_teacher_1):
+    """
+    failure case: when grade is null
+    """
+    response = client.post(
+        '/teacher/assignments/grade',
+        json={
+            "id":1,
+            "grade":""
+        },
+        headers=h_teacher_1
+
+    )
+
+    assert response.status_code == 400
+    data = response.json 
+    assert data['error'] == 'ValidationError'
+    assert data['message']['grade'][0] == "Invalid enum member "
 
 
 def test_grade_assignment_bad_assignment(client, h_teacher_1):
@@ -80,6 +104,9 @@ def test_grade_assignment_bad_assignment(client, h_teacher_1):
     data = response.json
 
     assert data['error'] == 'FyleError'
+    assert data['message'] == 'No assignment with this id was found'
+
+
 
 
 def test_grade_assignment_draft_assignment(client, h_teacher_1):
@@ -96,6 +123,63 @@ def test_grade_assignment_draft_assignment(client, h_teacher_1):
     )
 
     assert response.status_code == 400
-    data = response.json
+    
+    
 
-    assert data['error'] == 'FyleError'
+def test_grade_assignment(client,h_teacher_2):
+    response = client.post(
+        '/teacher/assignments/grade',
+        headers=h_teacher_2,
+        json = {
+            "id":2,
+            "grade":GradeEnum.A
+        }
+    )
+
+    data = response.json
+    assignment_data = data.get('data', {})  
+    assert response.status_code == 200
+    assert assignment_data.get('grade') == GradeEnum.A.value
+    assert assignment_data.get('id') == 2
+    assert assignment_data.get('state') == AssignmentStateEnum.GRADED.value
+
+def test_invalid_endpoint(client,h_teacher_1):
+    """
+    failure case: Invalid endpoint in respective path
+    """
+    response = client.get(
+        '/teacher/abc',
+        headers=h_teacher_1
+    )
+
+    assert response.status_code == 404
+    data = response.json
+    assert data['error'] == "NotFound"
+
+def test_student_endpoint(client,h_teacher_1):
+    """
+    failure case: When teacher is trying to get student endpoints
+    """
+    response = client.get(
+        '/student/assignments',
+        headers=h_teacher_1
+    )
+
+    assert response.status_code == 403
+    data = response.json
+    assert data['error'] == "FyleError"
+    assert data["message"] == "requester should be a student"
+
+def test_principal_endpoint(client,h_teacher_1):
+    """
+    failure case: When teacher is trying to get principal endpoints
+    """
+    response = client.get(
+        '/principal/assignments',
+        headers=h_teacher_1
+    )
+
+    assert response.status_code == 403
+    data = response.json
+    assert data['error'] == "FyleError"
+    assert data["message"] == "requester should be a principal"
